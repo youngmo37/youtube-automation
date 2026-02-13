@@ -336,9 +336,9 @@ MIT License - 자유롭게 사용, 수정, 배포 가능합니다.
 
 ## 📞 지원
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/youtube-automation-wsl/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/youtube-automation-wsl/discussions)
-- **Email**: your.email@example.com
+- **Issues**: [GitHub Issues](https://github.com/youngmo37/youtube-automation/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/youngmo37/youtube-automation/discussions)
+- **Email**: cloudmars@google.com
 
 ---
 
