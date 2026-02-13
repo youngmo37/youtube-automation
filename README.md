@@ -80,8 +80,8 @@
 ```bash
 # 1. 저장소 클론
 cd ~
-git clone https://github.com/yourusername/youtube-automation-wsl.git
-cd youtube-automation-wsl
+git clone https://github.com/youngmo37/youtube-automation.git
+cd youtube-automation
 
 # 2. 기본 환경 설정 (5-10분)
 chmod +x scripts/*.sh
@@ -129,7 +129,7 @@ chmod +x scripts/*.sh
 ## 📁 프로젝트 구조
 
 ```
-youtube-automation-wsl/
+youtube-automation/
 ├── README.md                    # 이 파일
 ├── ARCHITECTURE.md              # 상세 아키텍처
 ├── LICENSE
@@ -211,14 +211,14 @@ graph LR
 
 ```bash
 # Python 환경 활성화
-cd ~/youtube-automation-wsl/ai-services
+cd ~/youtube-automation/ai-services
 source venv/bin/activate
 
 # API 서버 실행 (개발 모드)
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
 # 로그 확인
-tail -f ~/youtube-automation-wsl/logs/fastapi.log
+tail -f ~/youtube-automation/logs/fastapi.log
 ```
 
 ### API 엔드포인트
