@@ -39,7 +39,7 @@ log_error() {
 }
 
 # 프로젝트 루트 디렉토리
-PROJECT_ROOT="$HOME/youtube-automation-wsl"
+PROJECT_ROOT="$HOME/youtube-automation"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -48,17 +48,24 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # 1. 시스템 요구사항 확인
+# Ubuntu 버전 확인
+UBUNTU_VERSION=$(lsb_release -rs 2>/dev/null || echo "unknown")
+UBUNTU_CODENAME=$(lsb_release -cs 2>/dev/null || echo "unknown")
+log_info "Ubuntu 버전: $UBUNTU_VERSION ($UBUNTU_CODENAME)"
 log_info "시스템 요구사항 확인 중..."
 
-# GPU 확인
+# GPU 확인 (경고만, 종료 안 함)
 if ! command -v nvidia-smi &> /dev/null; then
-    log_error "NVIDIA GPU 드라이버가 설치되지 않았습니다"
-    log_error "설치 가이드: https://developer.nvidia.com/cuda/wsl"
-    exit 1
+    log_warning "⚠️  nvidia-smi를 찾을 수 없습니다"
+    log_warning "    AI 이미지/영상 생성에는 NVIDIA GPU가 필요합니다"
+    log_warning "    드라이버 설치: https://developer.nvidia.com/cuda/wsl"
+    log_warning "    TTS, 대본 작성 등 GPU 불필요 기능은 계속 사용 가능합니다"
+    GPU_AVAILABLE=false
+else
+    log_success "GPU 확인 완료"
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+    GPU_AVAILABLE=true
 fi
-
-log_success "GPU 확인 완료"
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 # 메모리 확인
 TOTAL_MEM=$(free -g | awk '/^Mem:/{print $2}')
@@ -95,6 +102,36 @@ sudo apt install -y \
     build-essential
 
 log_success "시스템 패키지 설치 완료"
+
+# Python 버전 자동 감지
+log_info "Python 버전 감지 중..."
+
+PYTHON_BIN=$(which python3)
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+PYTHON_MAJOR_MINOR=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+
+log_success "Python 버전: $PYTHON_VERSION (python3 → $PYTHON_BIN)"
+
+# 최소 버전 확인 (3.9 이상 필요)
+PYTHON_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)")
+if [ "$PYTHON_MINOR" -lt 9 ]; then
+    log_error "Python 3.9 이상이 필요합니다 (현재: $PYTHON_VERSION)"
+    exit 1
+fi
+
+# venv 모듈 확인 및 버전별 설치
+if ! python3 -m venv --help > /dev/null 2>&1; then
+    log_info "python3-venv 추가 설치 중..."
+    sudo apt install -y "python${PYTHON_MAJOR_MINOR}-venv" 2>/dev/null || \
+    sudo apt install -y python3-venv
+fi
+
+log_success "Python 환경 준비 완료"
+
+# 환경 변수로 저장 (다른 스크립트에서 참조)
+echo "PYTHON_BIN=$PYTHON_BIN" > "$HOME/.youtube_automation_env"
+echo "PYTHON_VERSION=$PYTHON_VERSION" >> "$HOME/.youtube_automation_env"
+echo "PYTHON_MAJOR_MINOR=$PYTHON_MAJOR_MINOR" >> "$HOME/.youtube_automation_env"
 
 # 3. Docker 설치
 log_info "Docker 설치 상태 확인 중..."
@@ -234,7 +271,7 @@ echo "  ${YELLOW}wsl --shutdown${NC}"
 echo "  ${YELLOW}wsl${NC}"
 echo ""
 echo "재시작 후 다음 명령으로 계속:"
-echo "  ${GREEN}cd ~/youtube-automation-wsl${NC}"
+echo "  ${GREEN}cd ~/youtube-automation${NC}"
 echo "  ${GREEN}./scripts/setup_ai_services.sh${NC}"
 echo ""
 

@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-PROJECT_ROOT="$HOME/youtube-automation-wsl"
+PROJECT_ROOT="$HOME/youtube-automation"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
