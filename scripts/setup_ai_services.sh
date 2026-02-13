@@ -39,7 +39,10 @@ log_error() {
 }
 
 # 프로젝트 루트
-PROJECT_ROOT="$HOME/youtube-automation-wsl"
+# 스크립트 위치로부터 프로젝트 루트 자동 감지 (폴더명 무관)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+log_info "프로젝트 경로: $PROJECT_ROOT"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -293,6 +296,10 @@ deactivate
 log_info "서비스 파일 템플릿 생성 중..."
 
 SERVICES_DIR="$AI_SERVICES_DIR/services"
+
+# 디렉토리 없으면 생성 (touch 실패 방지)
+mkdir -p "$SERVICES_DIR"
+log_success "services 디렉토리: $SERVICES_DIR"
 
 # services/__init__.py
 touch "$SERVICES_DIR/__init__.py"
