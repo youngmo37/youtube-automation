@@ -39,7 +39,7 @@ log_error() {
 }
 
 # 프로젝트 루트
-PROJECT_ROOT="$HOME/youtube-automation-wsl"
+PROJECT_ROOT="$HOME/youtube-automation"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
