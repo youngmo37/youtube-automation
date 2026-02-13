@@ -39,7 +39,7 @@ log_error() {
 }
 
 # 프로젝트 루트
-PROJECT_ROOT="$HOME/youtube-automation"
+PROJECT_ROOT="$HOME/youtube-automation-wsl"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -52,6 +52,18 @@ if ! systemctl --version &> /dev/null; then
     log_error "systemd가 활성화되지 않았습니다!"
     log_error "WSL을 재시작하세요: wsl --shutdown (Windows)"
     exit 1
+fi
+
+# Python 버전 감지 (setup_base.sh 저장값 or 직접 감지)
+log_info "Python 버전 확인 중..."
+if [ -f "$HOME/.youtube_automation_env" ]; then
+    source "$HOME/.youtube_automation_env"
+    log_success "Python: $PYTHON_VERSION ($PYTHON_BIN)"
+else
+    PYTHON_BIN=$(which python3)
+    PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+    PYTHON_MAJOR_MINOR=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    log_info "Python 버전 감지: $PYTHON_VERSION"
 fi
 
 # 1. Ollama 설치
@@ -158,7 +170,15 @@ AI_SERVICES_DIR="$PROJECT_ROOT/ai-services"
 VENV_DIR="$AI_SERVICES_DIR/venv"
 
 if [ -d "$VENV_DIR" ]; then
-    log_success "Python 가상환경이 이미 생성되어 있습니다"
+    # venv가 있지만 정상인지 확인
+    if "$VENV_DIR/bin/python3" -c "import pip" &> /dev/null; then
+        log_success "Python 가상환경이 이미 정상적으로 생성되어 있습니다"
+    else
+        log_warning "기존 가상환경이 손상되어 있습니다. 재생성합니다..."
+        rm -rf "$VENV_DIR"
+        python3 -m venv "$VENV_DIR"
+        log_success "Python 가상환경 재생성 완료"
+    fi
 else
     log_info "Python 가상환경 생성 중..."
     python3 -m venv "$VENV_DIR"
@@ -168,57 +188,103 @@ fi
 # 가상환경 활성화
 source "$VENV_DIR/bin/activate"
 
-# pip 업그레이드
-log_info "pip 업그레이드 중..."
-pip install --quiet --upgrade pip
+# pip + setuptools 업그레이드 (Python 3.12 필수)
+log_info "pip / setuptools 업그레이드 중... (Python $PYTHON_VERSION)"
+pip install --upgrade pip setuptools wheel
 
-# requirements.txt가 없으면 생성
-if [ ! -f "$AI_SERVICES_DIR/requirements.txt" ]; then
-    log_info "requirements.txt 생성 중..."
-    
-    cat > "$AI_SERVICES_DIR/requirements.txt" <<EOF
+# requirements.txt 항상 새로 생성 (기존 파일 덮어쓰기)
+log_info "requirements.txt 생성 중... (Python 3.12 호환, 기존 파일 덮어쓰기)"
+
+cat > "$AI_SERVICES_DIR/requirements.txt" <<'REQEOF'
+# ─────────────────────────────────────────
+# Python 3.12 호환 / GTX 1060 CPU 전용
+# GTX 1060 (sm_61) = PyTorch CUDA 미지원 → torch 미설치
+# ─────────────────────────────────────────
+
+# 필수 빌드 도구
+setuptools>=69.0.0
+wheel>=0.42.0
+
 # Web Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
 
-# AI Services
-edge-tts==6.1.9
-openai-whisper==20231117
-faster-whisper==0.10.0
+# TTS
+edge-tts>=6.1.10
 
-# Audio/Video Processing
-pydub==0.25.1
-ffmpeg-python==0.2.0
+# Whisper (CPU 전용, torch 불필요)
+faster-whisper>=1.0.0
 
-# HTTP Client
-httpx==0.25.2
-aiofiles==23.2.1
+# Audio/Image Processing
+pydub>=0.25.1
+Pillow>=10.2.0
 
-# Image Processing
-Pillow==10.1.0
+# HTTP / Utilities
+httpx>=0.27.0
+aiofiles>=23.2.1
+python-dotenv>=1.0.0
+numpy>=1.26.0
+REQEOF
 
-# Utilities
-python-dotenv==1.0.0
-numpy==1.24.3
-EOF
-fi
+log_success "requirements.txt 생성 완료"
 
-# 의존성 설치
+# 의존성 설치 (단계별, 오류 격리)
 log_info "Python 의존성 설치 중... (5-10분 소요)"
-pip install --quiet -r "$AI_SERVICES_DIR/requirements.txt"
+
+# 1단계: 빌드 도구 먼저 (pkg_resources 오류 해결)
+log_info "  1/4 빌드 도구 설치..."
+pip install "setuptools>=69.0.0" "wheel>=0.42.0"
+
+# 2단계: 웹 프레임워크
+log_info "  2/4 FastAPI / Uvicorn 설치..."
+pip install "fastapi>=0.110.0" "uvicorn[standard]>=0.27.0" \
+    "python-multipart>=0.0.9" "httpx>=0.27.0" "aiofiles>=23.2.1"
+
+# 3단계: AI 서비스
+# GTX 1060 (CUDA sm_61) = 현재 PyTorch CUDA 미지원 → torch 설치 불필요
+# faster-whisper는 ctranslate2 기반으로 torch 없이도 CPU 동작
+log_info "  3/4 AI 서비스 설치 (faster-whisper, edge-tts)..."
+log_warning "  GTX 1060 (sm_61): PyTorch CUDA 미지원 → CPU 모드로 설치"
+
+# openai-whisper 혹시 남아있으면 제거 (충돌 방지)
+pip uninstall openai-whisper -y 2>/dev/null && log_info "  기존 openai-whisper 제거 완료" || true
+# torch도 제거 (GTX 1060에서 CUDA 오류 유발)
+pip uninstall torch torchvision torchaudio -y 2>/dev/null || true
+
+pip install "faster-whisper>=1.0.0" "edge-tts>=6.1.10"
+
+# 4단계: 유틸리티
+log_info "  4/4 유틸리티 설치..."
+pip install "pydub>=0.25.1" "Pillow>=10.2.0" \
+    "python-dotenv>=1.0.0" "numpy>=1.26.0"
 
 log_success "Python 의존성 설치 완료"
 
-# 4. Whisper 모델 다운로드
-log_info "Whisper 모델 다운로드 중..."
+# 설치 확인
+log_info "설치 확인 중..."
+python3 -c "import fastapi, uvicorn, edge_tts, faster_whisper; print('  ✓ 모든 패키지 정상')"
 
-python3 -c "import whisper; whisper.load_model('base')" 2>/dev/null || {
-    log_info "Whisper base 모델 다운로드 중... (~150MB)"
-    python3 -c "import whisper; whisper.load_model('base')"
-}
+# 4. Whisper 모델 다운로드 (CPU 전용)
+log_info "Whisper 모델 다운로드 중... (CPU 모드, ~150MB)"
 
-log_success "Whisper 모델 다운로드 완료"
+python3 - <<'PYEOF'
+from faster_whisper import WhisperModel
+import sys
+
+try:
+    print("  faster-whisper base 모델 다운로드 중 (CPU/int8)...")
+    # GTX 1060 = CUDA sm_61, 현재 PyTorch 미지원 → 항상 CPU 사용
+    model = WhisperModel("base", device="cpu", compute_type="int8")
+    # 간단한 테스트
+    print("  ✓ Whisper CPU 모드 정상 작동")
+    del model
+except Exception as e:
+    print(f"  경고: {e}", file=sys.stderr)
+    print("  (서비스 실행 시 자동 다운로드됩니다)")
+PYEOF
+
+log_success "Whisper 설치 완료 (CPU 모드)"
 
 # 가상환경 비활성화
 deactivate
@@ -228,10 +294,10 @@ log_info "서비스 파일 템플릿 생성 중..."
 
 SERVICES_DIR="$AI_SERVICES_DIR/services"
 
-# __init__.py
+# services/__init__.py
 touch "$SERVICES_DIR/__init__.py"
 
-# tts_service.py (간단한 템플릿)
+# tts_service.py
 if [ ! -f "$SERVICES_DIR/tts_service.py" ]; then
     cat > "$SERVICES_DIR/tts_service.py" <<'EOF'
 import edge_tts
@@ -245,16 +311,66 @@ class TTSService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
     async def generate(self, text: str, voice: str, speed: float = 1.0):
-        """Edge TTS로 음성 생성"""
+        """Edge TTS로 음성 생성 (무료, 인터넷 필요)"""
         filename = f"{uuid.uuid4()}.mp3"
         output_path = self.output_dir / filename
         
-        rate = f"+{int((speed - 1) * 100)}%" if speed > 1 else f"{int((speed - 1) * 100)}%"
+        rate_str = f"+{int((speed - 1) * 100)}%" if speed >= 1 else f"{int((speed - 1) * 100)}%"
         
-        communicate = edge_tts.Communicate(text, voice, rate=rate)
+        communicate = edge_tts.Communicate(text, voice, rate=rate_str)
         await communicate.save(str(output_path))
         
         return str(output_path)
+EOF
+fi
+
+# whisper_service.py (faster-whisper 사용)
+if [ ! -f "$SERVICES_DIR/whisper_service.py" ]; then
+    cat > "$SERVICES_DIR/whisper_service.py" <<'EOF'
+from faster_whisper import WhisperModel
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+class WhisperService:
+    def __init__(self, model_size: str = "base"):
+        """
+        faster-whisper CPU 전용 (GTX 1060 sm_61 = PyTorch CUDA 미지원)
+        compute_type: int8 → CPU에서 빠르고 메모리 효율적
+        """
+        logger.info(f"Whisper 모델 로딩: {model_size} (CPU/int8)")
+        self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        logger.info("Whisper 모델 로딩 완료")
+    
+    def transcribe_with_timestamps(self, audio_path: str):
+        """오디오 → 텍스트 + 워드 타임스탬프"""
+        logger.info(f"Whisper 분석: {audio_path}")
+        
+        segments, info = self.model.transcribe(
+            audio_path,
+            word_timestamps=True,
+            language="ko"
+        )
+        
+        words = []
+        full_text = ""
+        
+        for segment in segments:
+            full_text += segment.text + " "
+            if segment.words:
+                for word in segment.words:
+                    words.append({
+                        "word": word.word,
+                        "start": round(word.start, 2),
+                        "end": round(word.end, 2)
+                    })
+        
+        return {
+            "text": full_text.strip(),
+            "duration": round(info.duration, 2),
+            "words": words
+        }
 EOF
 fi
 
